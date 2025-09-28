@@ -46,6 +46,15 @@ class CalendarEvent(BaseModel):
         # Ensure all fields are included in JSON output, even if empty
         exclude_none = False
 
+class HolidayEvent(BaseModel):
+    name: str
+    date: str
+    time_until: str
+    
+    class Config:
+        # Ensure all fields are included in JSON output, even if empty
+        exclude_none = False
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize services on startup"""
@@ -286,6 +295,7 @@ async def root():
         "version": "1.0.0",
         "endpoints": {
             "get-events": "/get-events?start=YYYY-MM-DD&end=YYYY-MM-DD",
+            "get-holidays": "/get-holidays?date=YYYY-MM-DD",
             "excluded-titles": "/excluded-titles",
             "get-todos": "/get-todos",
             "add-todos": "/add-todos",
@@ -424,6 +434,80 @@ async def get_events(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch calendar events: {str(e)}")
+
+@app.get("/get-holidays", response_model=List[HolidayEvent])
+async def get_holidays(
+    date: str = Query(..., description="Start date in YYYY-MM-DD format to get holidays on or after this date")
+) -> List[HolidayEvent]:
+    """
+    Get US holidays from the "Holidays in United States" calendar on or after the specified date,
+    limited to the next 12 months (365 days) from the start date
+    
+    Args:
+        date: Start date in YYYY-MM-DD format
+    
+    Returns:
+        List of holiday events with name, date, and time until (within next 365 days)
+    """
+    global calendar_service
+    
+    if not calendar_service:
+        raise HTTPException(status_code=500, detail="Google Calendar service not initialized")
+    
+    # Parse and validate date
+    start_datetime = parse_date_string(date)
+    
+    # Set start to beginning of day
+    start_datetime = start_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Calculate end date (365 days from start date)
+    end_datetime = start_datetime + datetime.timedelta(days=365)
+    end_datetime = end_datetime.replace(hour=23, minute=59, second=59, microsecond=999999)
+    
+    try:
+        # Fetch holidays from the US Holidays calendar
+        # Calendar ID for "Holidays in United States"
+        holidays_calendar_id = 'en.usa#holiday@group.v.calendar.google.com'
+        
+        events_result = calendar_service.events().list(
+            calendarId=holidays_calendar_id,
+            timeMin=start_datetime.isoformat(),
+            timeMax=end_datetime.isoformat(),
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+        
+        events = events_result.get('items', [])
+        
+        formatted_holidays = []
+        for event in events:
+            holiday_name = event.get('summary', '')
+            
+            # Process all-day holiday events (holidays are typically all-day events)
+            if 'date' in event['start']:
+                holiday_date = format_all_day_date(event['start']['date'])
+                time_until = get_time_until_all_day_event(event['start']['date'])
+                
+                formatted_holidays.append(HolidayEvent(
+                    name=holiday_name,
+                    date=holiday_date,
+                    time_until=time_until
+                ))
+            # Handle regular events with dateTime (just in case)
+            elif 'dateTime' in event['start']:
+                holiday_date = format_date(event['start']['dateTime'])
+                time_until = get_time_until_event(event['start']['dateTime'])
+                
+                formatted_holidays.append(HolidayEvent(
+                    name=holiday_name,
+                    date=holiday_date,
+                    time_until=time_until
+                ))
+        
+        return formatted_holidays
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch holidays: {str(e)}")
 
 # Todos API Endpoints
 
