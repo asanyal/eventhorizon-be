@@ -5,8 +5,9 @@ Pydantic models for API requests and responses
 from datetime import datetime
 from typing import Optional, List
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from bson import ObjectId
+import re
 
 class PyObjectId(ObjectId):
     """Custom ObjectId type for Pydantic v2"""
@@ -65,15 +66,28 @@ class TodoUpdate(BaseModel):
 class HorizonCreate(BaseModel):
     """Model for creating a new horizon item"""
     title: str = Field(..., min_length=1, max_length=200, description="Horizon title")
-    details: str = Field(..., min_length=1, max_length=2000, description="Horizon details")
+    details: Optional[str] = Field(default="", max_length=2000, description="Horizon details (optional)")
     type: str = Field(default="none", max_length=100, description="Horizon type")
     horizon_date: Optional[str] = Field(default=None, description="Optional date for the horizon item (YYYY-MM-DD format)")
+    
+    @validator('horizon_date')
+    def validate_horizon_date(cls, v):
+        if v is None:
+            return v
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', v):
+            raise ValueError('horizon_date must be in YYYY-MM-DD format')
+        # Try to parse the date to ensure it's valid
+        try:
+            datetime.strptime(v, '%Y-%m-%d')
+        except ValueError:
+            raise ValueError('horizon_date must be a valid date in YYYY-MM-DD format')
+        return v
 
 class HorizonResponse(BaseModel):
     """Model for horizon response"""
     id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
     title: str
-    details: str
+    details: Optional[str] = Field(default="", description="Horizon details (optional)")
     type: str = Field(default="none", description="Horizon type")
     horizon_date: Optional[str] = Field(default=None, description="Optional date for the horizon item (YYYY-MM-DD format)")
     created_at: datetime
@@ -87,7 +101,7 @@ class HorizonResponse(BaseModel):
 class HorizonUpdate(BaseModel):
     """Model for updating a horizon item"""
     title: Optional[str] = Field(None, min_length=1, max_length=200)
-    details: Optional[str] = Field(None, min_length=1, max_length=2000)
+    details: Optional[str] = Field(None, max_length=2000)
     type: Optional[str] = Field(None, max_length=100)
     horizon_date: Optional[str] = Field(None, description="Optional date for the horizon item (YYYY-MM-DD format)")
 
@@ -95,13 +109,13 @@ class HorizonEdit(BaseModel):
     """Model for editing a horizon item by existing criteria"""
     # Existing values to find the horizon
     existing_title: Optional[str] = Field(None, min_length=1, max_length=200, description="Current title to match")
-    existing_details: Optional[str] = Field(None, min_length=1, max_length=2000, description="Current details to match")
+    existing_details: Optional[str] = Field(None, max_length=2000, description="Current details to match")
     existing_type: Optional[str] = Field(None, max_length=100, description="Current type to match")
     existing_horizon_date: Optional[str] = Field(None, description="Current horizon date to match")
     
     # New values to update
     new_title: Optional[str] = Field(None, min_length=1, max_length=200, description="New title to set")
-    new_details: Optional[str] = Field(None, min_length=1, max_length=2000, description="New details to set")
+    new_details: Optional[str] = Field(None, max_length=2000, description="New details to set")
     new_type: Optional[str] = Field(None, max_length=100, description="New type to set")
     new_horizon_date: Optional[str] = Field(None, description="New horizon date to set")
 

@@ -8,9 +8,11 @@ from dateutil import parser
 import pytz
 from typing import List, Dict, Any, Optional
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request as FastAPIRequest
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ValidationError
 import googleapiclient.discovery
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -97,6 +99,29 @@ app.add_middleware(
     allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
     allow_headers=["*"],  # Allow all headers
 )
+
+# Add custom exception handler for validation errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: FastAPIRequest, exc: RequestValidationError):
+    """Custom handler for request validation errors to provide better error messages"""
+    error_details = []
+    for error in exc.errors():
+        field_path = " -> ".join(str(loc) for loc in error["loc"])
+        error_details.append({
+            "field": field_path,
+            "message": error["msg"],
+            "type": error["type"],
+            "input": error.get("input")
+        })
+    
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Request validation failed",
+            "errors": error_details,
+            "hint": "For /add-horizon endpoint, make sure to include 'title' in the request body (details is optional)"
+        }
+    )
 
 def authenticate_google_calendar():
     creds = None
@@ -672,10 +697,32 @@ async def add_horizon(
     type: str = Query(default="none", description="Horizon type", max_length=100),
     horizon_date: Optional[str] = Query(default=None, description="Optional date for the horizon item (YYYY-MM-DD format)")
 ):
+    """
+    Add a new horizon item
+    
+    Args:
+        horizon_data: Request body containing title (required) and details (optional)
+        type: Horizon type (query parameter)
+        horizon_date: Optional date in YYYY-MM-DD format (query parameter)
+    
+    Request body example:
+        {
+            "title": "My horizon title",
+            "details": "Detailed description of the horizon"
+        }
+    
+    Returns:
+        The created horizon with generated ID and timestamps
+    """
     try:
         # Override the type and horizon_date from query parameters
         horizon_data.type = type
-        horizon_data.horizon_date = horizon_date
+        
+        # Handle the case where horizon_date is passed as string "null" or other null-like values
+        if horizon_date in ["null", "None", "undefined", ""] or horizon_date is None:
+            horizon_data.horizon_date = None
+        else:
+            horizon_data.horizon_date = horizon_date
         
         return await horizon_repo.create_horizon(horizon_data)
         
