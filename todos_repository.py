@@ -56,18 +56,24 @@ class TodosRepository:
         except Exception as e:
             raise RuntimeError(f"Error creating todo: {str(e)}")
     
-    async def get_all_todos(self) -> List[TodoResponse]:
-        """Get all todo items"""
+    async def get_all_todos(self, urgency: Optional[str] = None, priority: Optional[str] = None) -> List[TodoResponse]:
+        """Get all todo items, optionally filtered by urgency and/or priority"""
         try:
-            # Retrieve all todos, sorted by created_at descending (newest first)
-            cursor = self.collection.find({}).sort("created_at", -1)
-            todos = []
-            
-            for todo_doc in cursor:
-                todos.append(TodoResponse(**todo_doc))
-            
+            # Build query filter
+            query = {}
+            if urgency:
+                query["urgency"] = urgency
+            if priority:
+                query["priority"] = priority
+
+            # Retrieve todos with query, sorted by created_at descending (newest first)
+            cursor = self.collection.find(query).sort("created_at", -1)
+
+            # Use list comprehension for better performance
+            todos = [TodoResponse(**todo_doc) for todo_doc in cursor]
+
             return todos
-            
+
         except PyMongoError as e:
             raise RuntimeError(f"Database error while retrieving todos: {str(e)}")
         except Exception as e:
@@ -157,13 +163,8 @@ class TodosRepository:
         """Get todos filtered by urgency level"""
         try:
             cursor = self.collection.find({"urgency": urgency}).sort("created_at", -1)
-            todos = []
-            
-            for todo_doc in cursor:
-                todos.append(TodoResponse(**todo_doc))
-            
-            return todos
-            
+            return [TodoResponse(**todo_doc) for todo_doc in cursor]
+
         except PyMongoError as e:
             raise RuntimeError(f"Database error while retrieving todos by urgency: {str(e)}")
         except Exception as e:
@@ -173,13 +174,8 @@ class TodosRepository:
         """Get todos filtered by priority level"""
         try:
             cursor = self.collection.find({"priority": priority}).sort("created_at", -1)
-            todos = []
-            
-            for todo_doc in cursor:
-                todos.append(TodoResponse(**todo_doc))
-            
-            return todos
-            
+            return [TodoResponse(**todo_doc) for todo_doc in cursor]
+
         except PyMongoError as e:
             raise RuntimeError(f"Database error while retrieving todos by priority: {str(e)}")
         except Exception as e:

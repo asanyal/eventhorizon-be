@@ -57,18 +57,22 @@ class HorizonRepository:
         except Exception as e:
             raise RuntimeError(f"Error creating horizon: {str(e)}")
     
-    async def get_all_horizons(self) -> List[HorizonResponse]:
-        """Get all horizon items"""
+    async def get_all_horizons(self, horizon_date: Optional[str] = None) -> List[HorizonResponse]:
+        """Get all horizon items, optionally filtered by horizon_date"""
         try:
-            # Retrieve all horizons, sorted by created_at descending (newest first)
-            cursor = self.collection.find({}).sort("created_at", -1)
-            horizons = []
-            
-            for horizon_doc in cursor:
-                horizons.append(HorizonResponse(**horizon_doc))
-            
+            # Build query filter
+            query = {}
+            if horizon_date:
+                query["horizon_date"] = horizon_date
+
+            # Retrieve horizons with query, sorted by created_at descending (newest first)
+            cursor = self.collection.find(query).sort("created_at", -1)
+
+            # Use list comprehension for better performance
+            horizons = [HorizonResponse(**horizon_doc) for horizon_doc in cursor]
+
             return horizons
-            
+
         except PyMongoError as e:
             raise RuntimeError(f"Database error while retrieving horizons: {str(e)}")
         except Exception as e:
@@ -161,18 +165,14 @@ class HorizonRepository:
         try:
             if not title_query or not title_query.strip():
                 return []
-            
+
             # Use regex for case-insensitive partial matching
             cursor = self.collection.find({
                 "title": {"$regex": title_query.strip(), "$options": "i"}
             }).sort("created_at", -1)
-            
-            horizons = []
-            for horizon_doc in cursor:
-                horizons.append(HorizonResponse(**horizon_doc))
-            
-            return horizons
-            
+
+            return [HorizonResponse(**horizon_doc) for horizon_doc in cursor]
+
         except PyMongoError as e:
             raise RuntimeError(f"Database error while searching horizons: {str(e)}")
         except Exception as e:

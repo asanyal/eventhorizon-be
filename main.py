@@ -76,10 +76,12 @@ async def lifespan(app: FastAPI):
     try:
         db_config.connect()
         print("✅ MongoDB connected successfully")
+        # Ensure indexes are created for optimal query performance
+        db_config.ensure_indexes()
     except Exception as e:
         print(f"❌ Failed to connect to MongoDB: {e}")
         raise e
-    
+
     yield
     
     db_config.disconnect()
@@ -391,75 +393,79 @@ async def get_events(
         ).execute()
         
         events = events_result.get('items', [])
-        
-        formatted_events = []
-        for event in events:
+
+        # Helper function to extract attendees efficiently
+        def extract_attendees(event):
+            return [
+                attendee.get('email', '')
+                for attendee in event.get('attendees', [])
+                if attendee.get('email', '')
+            ]
+
+        # Helper function to process a single event
+        def process_event(event):
             # Skip events based on exclusion rules
             event_title = event.get('summary', '')
             if should_exclude_event(event_title):
-                continue
-            
-            # Extract common information for both event types
-            attendees_list = []
+                return None
+
+            # Extract common information
+            attendees_list = extract_attendees(event)
             organizer_email = event.get('organizer', {}).get('email')
-            notes = event.get('description', None)  # Get event description/notes
-            
-            if 'attendees' in event:
-                for attendee in event['attendees']:
-                    email = attendee.get('email', '')
-                    if email:  # Only add if email exists
-                        attendees_list.append(email)
-            
+            notes = event.get('description', None)
+
             # Process regular events with dateTime
             if 'dateTime' in event['start']:
-                event_date = format_date(event['start']['dateTime'])
-                start_time, end_time = get_start_end_times(
-                    event['start']['dateTime'], 
-                    event['end']['dateTime']
-                )
-                duration_minutes = calculate_duration_in_minutes(
-                    event['start']['dateTime'], 
-                    event['end']['dateTime']
-                )
-                time_until = get_time_until_event(event['start']['dateTime'])
-                
-                formatted_events.append(CalendarEvent(
-                    event=event['summary'],
-                    date=event_date,
+                start_dt = event['start']['dateTime']
+                end_dt = event['end']['dateTime']
+                start_time, end_time = get_start_end_times(start_dt, end_dt)
+
+                return CalendarEvent(
+                    event=event_title,
+                    date=format_date(start_dt),
                     start_time=start_time,
                     end_time=end_time,
-                    duration_minutes=duration_minutes,
-                    time_until=time_until,
+                    duration_minutes=calculate_duration_in_minutes(start_dt, end_dt),
+                    time_until=get_time_until_event(start_dt),
                     attendees=attendees_list,
                     organizer_email=organizer_email,
                     all_day=False,
                     notes=notes
-                ))
-            
+                )
+
             # Process all-day events with date only
             elif 'date' in event['start']:
-                event_date = format_all_day_date(event['start']['date'])
-                time_until = get_time_until_all_day_event(event['start']['date'])
-                
+                start_date_str = event['start']['date']
+                end_date_str = event['end']['date']
+
                 # Calculate duration for multi-day events
-                start_date = datetime.datetime.strptime(event['start']['date'], "%Y-%m-%d")
-                end_date = datetime.datetime.strptime(event['end']['date'], "%Y-%m-%d")
+                start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d")
+                end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d")
                 duration_days = (end_date - start_date).days
-                duration_minutes = duration_days * 24 * 60 if duration_days > 0 else 24 * 60  # Default to 1 day
-                
-                formatted_events.append(CalendarEvent(
-                    event=event['summary'],
-                    date=event_date,
+                duration_minutes = duration_days * 24 * 60 if duration_days > 0 else 24 * 60
+
+                return CalendarEvent(
+                    event=event_title,
+                    date=format_all_day_date(start_date_str),
                     start_time="All Day",
                     end_time="All Day",
                     duration_minutes=duration_minutes,
-                    time_until=time_until,
+                    time_until=get_time_until_all_day_event(start_date_str),
                     attendees=attendees_list,
                     organizer_email=organizer_email,
                     all_day=True,
                     notes=notes
-                ))
-        
+                )
+
+            return None
+
+        # Process all events and filter out None values (excluded events)
+        formatted_events = [
+            processed_event
+            for event in events
+            if (processed_event := process_event(event)) is not None
+        ]
+
         return formatted_events
         
     except Exception as e:
@@ -557,22 +563,11 @@ async def get_todos(
         List of todos matching the filters
     """
     try:
-        if urgency and priority:
-            # If both filters are specified, we need to implement a combined filter
-            # For now, let's get all and filter in memory (could be optimized with MongoDB query)
-            all_todos = await todos_repo.get_all_todos()
-            filtered_todos = [
-                todo for todo in all_todos 
-                if todo.urgency == urgency and todo.priority == priority
-            ]
-            return filtered_todos
-        elif urgency:
-            return await todos_repo.get_todos_by_urgency(urgency.value)
-        elif priority:
-            return await todos_repo.get_todos_by_priority(priority.value)
-        else:
-            return await todos_repo.get_all_todos()
-            
+        # Pass filters directly to repository for database-level filtering
+        urgency_value = urgency.value if urgency else None
+        priority_value = priority.value if priority else None
+        return await todos_repo.get_all_todos(urgency=urgency_value, priority=priority_value)
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve todos: {str(e)}")
 
@@ -682,17 +677,9 @@ async def get_horizons(
         List of horizon items sorted by creation date (newest first)
     """
     try:
-        if horizon_date:
-            # Filter horizons by the specified date
-            all_horizons = await horizon_repo.get_all_horizons()
-            filtered_horizons = [
-                horizon for horizon in all_horizons 
-                if horizon.horizon_date == horizon_date
-            ]
-            return filtered_horizons
-        else:
-            return await horizon_repo.get_all_horizons()
-        
+        # Pass horizon_date filter directly to repository for database-level filtering
+        return await horizon_repo.get_all_horizons(horizon_date=horizon_date)
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve horizons: {str(e)}")
 

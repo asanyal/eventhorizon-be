@@ -4,7 +4,7 @@ MongoDB database configuration and connection
 
 import os
 from urllib.parse import quote_plus
-from pymongo import MongoClient
+from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.database import Database
 from pymongo.collection import Collection
 from dotenv import load_dotenv
@@ -65,6 +65,51 @@ class DatabaseConfig:
         if self.database is None:
             raise RuntimeError("Database not connected. Call connect() first.")
         return self.database[collection_name]
+
+    def ensure_indexes(self):
+        """Ensure all necessary indexes exist for optimal query performance"""
+        if self.database is None:
+            raise RuntimeError("Database not connected. Call connect() first.")
+
+        try:
+            print("🔍 Ensuring database indexes exist...")
+
+            # === TODOS COLLECTION INDEXES ===
+            todos_collection = self.get_collection("todos")
+            todos_collection.create_index([("created_at", DESCENDING)], name="idx_todos_created_at", background=True)
+            todos_collection.create_index([("urgency", ASCENDING)], name="idx_todos_urgency", background=True)
+            todos_collection.create_index([("priority", ASCENDING)], name="idx_todos_priority", background=True)
+            todos_collection.create_index(
+                [("urgency", ASCENDING), ("priority", ASCENDING), ("created_at", DESCENDING)],
+                name="idx_todos_urgency_priority_created",
+                background=True
+            )
+
+            # === HORIZONS COLLECTION INDEXES ===
+            horizons_collection = self.get_collection("horizon")
+            horizons_collection.create_index([("created_at", DESCENDING)], name="idx_horizon_created_at", background=True)
+            horizons_collection.create_index([("horizon_date", ASCENDING)], name="idx_horizon_date", background=True)
+            horizons_collection.create_index(
+                [("horizon_date", ASCENDING), ("created_at", DESCENDING)],
+                name="idx_horizon_date_created",
+                background=True
+            )
+            horizons_collection.create_index([("title", ASCENDING)], name="idx_horizon_title", background=True)
+            horizons_collection.create_index([("type", ASCENDING)], name="idx_horizon_type", background=True)
+
+            # === BOOKMARKED EVENTS COLLECTION INDEXES ===
+            try:
+                bookmarked_collection = self.get_collection("bookmarked_events")
+                bookmarked_collection.create_index([("created_at", DESCENDING)], name="idx_bookmarked_created_at", background=True)
+                bookmarked_collection.create_index([("date", ASCENDING)], name="idx_bookmarked_date", background=True)
+            except Exception:
+                pass  # Collection might not exist yet
+
+            print("✅ Database indexes verified/created successfully")
+
+        except Exception as e:
+            print(f"⚠️  Warning: Could not ensure indexes: {e}")
+            # Don't fail the application if indexes can't be created
 
 # Global database instance
 db_config = DatabaseConfig()
