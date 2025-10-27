@@ -142,3 +142,107 @@ class BookmarkEventResponse(BaseModel):
         populate_by_name = True
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
+
+# ========== MEAL PREP MODELS ==========
+
+class IngredientCreate(BaseModel):
+    """Model for creating a new ingredient"""
+    name: str = Field(..., min_length=1, max_length=200, description="Ingredient name")
+    quantity: Optional[str] = Field(default=None, max_length=50, description="Quantity (optional)")
+    unit: Optional[str] = Field(default=None, max_length=50, description="Unit (optional)")
+
+class IngredientResponse(BaseModel):
+    """Model for ingredient response"""
+    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
+    name: str
+    quantity: Optional[str] = None
+    unit: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+class MealCreate(BaseModel):
+    """Model for creating a new meal"""
+    name: str = Field(..., min_length=1, max_length=200, description="Meal name")
+    ingredients: List[str] = Field(default_factory=list, description="List of ingredient names")
+
+class MealResponse(BaseModel):
+    """Model for meal response"""
+    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
+    name: str
+    ingredients: List[str]
+    created_at: datetime
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+class DayField(str, Enum):
+    """Valid day fields for weekly meal plan"""
+    SUNDAY_LUNCH = "sunday_lunch"
+    TUESDAY_LUNCH = "tuesday_lunch"
+    MONDAY_DINNER = "monday_dinner"
+    WEDNESDAY_DINNER = "wednesday_dinner"
+
+class WeeklyMealPlanCreate(BaseModel):
+    """Model for creating/updating a weekly meal plan"""
+    week_start_date: str = Field(..., description="Monday of the week in YYYY-MM-DD format")
+    sunday_lunch: Optional[str] = Field(default=None, description="Meal ID for Sunday lunch")
+    tuesday_lunch: Optional[str] = Field(default=None, description="Meal ID for Tuesday lunch")
+    monday_dinner: Optional[str] = Field(default=None, description="Meal ID for Monday dinner")
+    wednesday_dinner: Optional[str] = Field(default=None, description="Meal ID for Wednesday dinner")
+
+    @validator('week_start_date')
+    def validate_week_start_date(cls, v):
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', v):
+            raise ValueError('week_start_date must be in YYYY-MM-DD format')
+        try:
+            date_obj = datetime.strptime(v, '%Y-%m-%d')
+            # Verify it's a Monday (weekday() returns 0 for Monday)
+            if date_obj.weekday() != 0:
+                raise ValueError('week_start_date must be a Monday')
+        except ValueError as e:
+            if 'Monday' in str(e):
+                raise
+            raise ValueError('week_start_date must be a valid date in YYYY-MM-DD format')
+        return v
+
+class WeeklyMealPlanResponse(BaseModel):
+    """Model for weekly meal plan response"""
+    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
+    week_start_date: str
+    sunday_lunch: Optional[str] = None
+    tuesday_lunch: Optional[str] = None
+    monday_dinner: Optional[str] = None
+    wednesday_dinner: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+class UpdateMealSlotRequest(BaseModel):
+    """Model for updating a specific meal slot"""
+    week_start_date: str = Field(..., description="Monday of the week in YYYY-MM-DD format")
+    day_field: DayField = Field(..., description="The day/meal field to update")
+    meal_id: Optional[str] = Field(default=None, description="Meal ID or null to clear the slot")
+
+    @validator('week_start_date')
+    def validate_week_start_date(cls, v):
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', v):
+            raise ValueError('week_start_date must be in YYYY-MM-DD format')
+        try:
+            date_obj = datetime.strptime(v, '%Y-%m-%d')
+            if date_obj.weekday() != 0:
+                raise ValueError('week_start_date must be a Monday')
+        except ValueError as e:
+            if 'Monday' in str(e):
+                raise
+            raise ValueError('week_start_date must be a valid date in YYYY-MM-DD format')
+        return v

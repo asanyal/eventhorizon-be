@@ -105,6 +105,31 @@ class DatabaseConfig:
             except Exception:
                 pass  # Collection might not exist yet
 
+            # === MEAL PREP COLLECTIONS INDEXES ===
+            # Ingredients collection
+            try:
+                ingredients_collection = self.get_collection("ingredients")
+                ingredients_collection.create_index([("created_at", DESCENDING)], name="idx_ingredients_created_at", background=True)
+                ingredients_collection.create_index([("name", ASCENDING)], name="idx_ingredients_name", background=True)
+            except Exception:
+                pass  # Collection might not exist yet
+
+            # Meals collection
+            try:
+                meals_collection = self.get_collection("meals")
+                meals_collection.create_index([("created_at", DESCENDING)], name="idx_meals_created_at", background=True)
+                meals_collection.create_index([("name", ASCENDING)], name="idx_meals_name", background=True)
+            except Exception:
+                pass  # Collection might not exist yet
+
+            # Weekly meal plans collection
+            try:
+                weekly_plans_collection = self.get_collection("weekly_meal_plans")
+                weekly_plans_collection.create_index([("week_start_date", ASCENDING)], name="idx_weekly_plans_date", unique=True, background=True)
+                weekly_plans_collection.create_index([("created_at", DESCENDING)], name="idx_weekly_plans_created_at", background=True)
+            except Exception:
+                pass  # Collection might not exist yet
+
             print("✅ Database indexes verified/created successfully")
 
         except Exception as e:

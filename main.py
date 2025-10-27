@@ -19,10 +19,20 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from exceptions import should_exclude_event, get_excluded_titles_summary
 from database import db_config
-from models import TodoCreate, TodoResponse, UrgencyLevel, PriorityLevel, HorizonCreate, HorizonResponse, HorizonEdit, BookmarkEventCreate, BookmarkEventResponse
+from models import (
+    TodoCreate, TodoResponse, UrgencyLevel, PriorityLevel,
+    HorizonCreate, HorizonResponse, HorizonEdit,
+    BookmarkEventCreate, BookmarkEventResponse,
+    IngredientCreate, IngredientResponse,
+    MealCreate, MealResponse,
+    WeeklyMealPlanCreate, WeeklyMealPlanResponse, UpdateMealSlotRequest
+)
 from todos_repository import todos_repo
 from horizon_repository import horizon_repo
 from bookmarked_events_repository import bookmarked_events_repo
+from ingredients_repository import ingredients_repo
+from meals_repository import meals_repo
+from weekly_meal_plans_repository import weekly_meal_plans_repo
 
 load_dotenv()
 
@@ -942,6 +952,195 @@ async def delete_bookmarked_event_by_title(event_title: str = Query(..., descrip
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete bookmarked events by title: {str(e)}")
+
+# ========== MEAL PREP API ENDPOINTS ==========
+
+# Ingredients API Endpoints
+
+@app.get("/get-ingredients", response_model=List[IngredientResponse])
+async def get_ingredients():
+    """
+    Get all ingredients
+
+    Returns:
+        List of all ingredients
+    """
+    try:
+        return await ingredients_repo.get_all_ingredients()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve ingredients: {str(e)}")
+
+@app.post("/add-ingredient", response_model=IngredientResponse)
+async def add_ingredient(ingredient_data: IngredientCreate):
+    """
+    Add a new ingredient
+
+    Args:
+        ingredient_data: Ingredient information including name, quantity, and unit
+
+    Returns:
+        The created ingredient with generated ID and timestamp
+    """
+    try:
+        return await ingredients_repo.create_ingredient(ingredient_data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create ingredient: {str(e)}")
+
+@app.delete("/delete-ingredient/{ingredient_id}")
+async def delete_ingredient(ingredient_id: str):
+    """
+    Delete an ingredient by ID
+
+    Args:
+        ingredient_id: The MongoDB ObjectId of the ingredient to delete
+
+    Returns:
+        Success message
+    """
+    try:
+        success = await ingredients_repo.delete_ingredient(ingredient_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Ingredient not found")
+
+        return {"message": "Ingredient deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete ingredient: {str(e)}")
+
+# Meals API Endpoints
+
+@app.get("/get-meals", response_model=List[MealResponse])
+async def get_meals():
+    """
+    Get all meals
+
+    Returns:
+        List of all meals with their ingredients
+    """
+    try:
+        return await meals_repo.get_all_meals()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve meals: {str(e)}")
+
+@app.post("/add-meal", response_model=MealResponse)
+async def add_meal(meal_data: MealCreate):
+    """
+    Add a new meal
+
+    Args:
+        meal_data: Meal information including name and ingredients list
+
+    Returns:
+        The created meal with generated ID and timestamp
+    """
+    try:
+        return await meals_repo.create_meal(meal_data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create meal: {str(e)}")
+
+@app.delete("/delete-meal/{meal_id}")
+async def delete_meal(meal_id: str):
+    """
+    Delete a meal by ID
+
+    Args:
+        meal_id: The MongoDB ObjectId of the meal to delete
+
+    Returns:
+        Success message
+    """
+    try:
+        success = await meals_repo.delete_meal(meal_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Meal not found")
+
+        return {"message": "Meal deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete meal: {str(e)}")
+
+# Weekly Meal Plan API Endpoints
+
+@app.get("/get-weekly-meal-plan", response_model=WeeklyMealPlanResponse)
+async def get_weekly_meal_plan(week_start_date: str = Query(..., description="Monday of the week in YYYY-MM-DD format")):
+    """
+    Get a weekly meal plan by week start date
+
+    Args:
+        week_start_date: Monday of the week in YYYY-MM-DD format
+
+    Returns:
+        The weekly meal plan if found
+    """
+    try:
+        plan = await weekly_meal_plans_repo.get_weekly_meal_plan(week_start_date)
+        if not plan:
+            raise HTTPException(status_code=404, detail="Weekly meal plan not found")
+        return plan
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve weekly meal plan: {str(e)}")
+
+@app.post("/upsert-weekly-meal-plan", response_model=WeeklyMealPlanResponse)
+async def upsert_weekly_meal_plan(plan_data: WeeklyMealPlanCreate):
+    """
+    Create or update a weekly meal plan (upsert operation)
+
+    Args:
+        plan_data: Weekly meal plan data including week_start_date and meal slots
+
+    Returns:
+        The created or updated weekly meal plan
+    """
+    try:
+        return await weekly_meal_plans_repo.upsert_weekly_meal_plan(plan_data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upsert weekly meal plan: {str(e)}")
+
+@app.patch("/update-meal-slot", response_model=WeeklyMealPlanResponse)
+async def update_meal_slot(update_data: UpdateMealSlotRequest):
+    """
+    Update a specific meal slot in the weekly plan
+
+    Args:
+        update_data: Update data including week_start_date, day_field, and meal_id
+
+    Returns:
+        The updated weekly meal plan
+    """
+    try:
+        return await weekly_meal_plans_repo.update_meal_slot(update_data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update meal slot: {str(e)}")
+
+@app.delete("/delete-weekly-meal-plan")
+async def delete_weekly_meal_plan(week_start_date: str = Query(..., description="Monday of the week in YYYY-MM-DD format")):
+    """
+    Delete a weekly meal plan by week start date
+
+    Args:
+        week_start_date: Monday of the week in YYYY-MM-DD format
+
+    Returns:
+        Success message
+    """
+    try:
+        success = await weekly_meal_plans_repo.delete_weekly_meal_plan(week_start_date)
+        if not success:
+            raise HTTPException(status_code=404, detail="Weekly meal plan not found")
+
+        return {"message": "Weekly meal plan deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete weekly meal plan: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
