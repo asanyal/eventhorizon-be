@@ -37,9 +37,18 @@ class DatabaseConfig:
             
             # Construct MongoDB connection string with escaped credentials
             mongodb_url = f"mongodb+srv://{escaped_user}:{escaped_pass}@{mongo_cluster}/?retryWrites=true&w=majority"
-            
-            # Connect to MongoDB
-            self.client = MongoClient(mongodb_url)
+
+            # Connect to MongoDB with optimized connection pool settings
+            self.client = MongoClient(
+                mongodb_url,
+                maxPoolSize=50,  # Maximum number of connections in the pool
+                minPoolSize=10,  # Minimum number of connections to maintain
+                maxIdleTimeMS=30000,  # Close connections idle for 30 seconds
+                waitQueueTimeoutMS=5000,  # Max time to wait for connection from pool
+                serverSelectionTimeoutMS=5000,  # Timeout for selecting a server
+                connectTimeoutMS=5000,  # Timeout for initial connection
+                socketTimeoutMS=30000  # Timeout for socket operations
+            )
             
             # Use the database name from environment
             self.database = self.client[mongo_db_name]
@@ -102,6 +111,7 @@ class DatabaseConfig:
                 bookmarked_collection = self.get_collection("bookmarked_events")
                 bookmarked_collection.create_index([("created_at", DESCENDING)], name="idx_bookmarked_created_at", background=True)
                 bookmarked_collection.create_index([("date", ASCENDING)], name="idx_bookmarked_date", background=True)
+                bookmarked_collection.create_index([("event_title", ASCENDING)], name="idx_bookmarked_event_title", background=True)
             except Exception:
                 pass  # Collection might not exist yet
 

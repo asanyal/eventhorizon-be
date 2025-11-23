@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Optional
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
+from pymongo import ReturnDocument
 from bson import ObjectId
 
 from database import db_config
@@ -47,9 +48,6 @@ class WeeklyMealPlansRepository:
         try:
             now = datetime.utcnow()
 
-            # Check if plan exists
-            existing_plan = self.collection.find_one({"week_start_date": plan_data.week_start_date})
-
             plan_doc = {
                 "week_start_date": plan_data.week_start_date,
                 "sunday_lunch": plan_data.sunday_lunch,
@@ -59,24 +57,21 @@ class WeeklyMealPlansRepository:
                 "updated_at": now
             }
 
-            if existing_plan:
-                # Update existing plan
-                self.collection.update_one(
-                    {"week_start_date": plan_data.week_start_date},
-                    {"$set": plan_doc}
-                )
-                updated_plan = self.collection.find_one({"week_start_date": plan_data.week_start_date})
-                return WeeklyMealPlanResponse(**updated_plan)
-            else:
-                # Create new plan
-                plan_doc["created_at"] = now
-                result = self.collection.insert_one(plan_doc)
-                created_plan = self.collection.find_one({"_id": result.inserted_id})
+            # Use find_one_and_update with upsert=True to handle both create and update in single operation
+            updated_plan = self.collection.find_one_and_update(
+                {"week_start_date": plan_data.week_start_date},
+                {
+                    "$set": plan_doc,
+                    "$setOnInsert": {"created_at": now}  # Only set created_at if inserting new document
+                },
+                upsert=True,
+                return_document=ReturnDocument.AFTER
+            )
 
-                if not created_plan:
-                    raise RuntimeError("Failed to retrieve created weekly meal plan")
+            if not updated_plan:
+                raise RuntimeError("Failed to upsert weekly meal plan")
 
-                return WeeklyMealPlanResponse(**created_plan)
+            return WeeklyMealPlanResponse(**updated_plan)
 
         except PyMongoError as e:
             raise RuntimeError(f"Database error while upserting weekly meal plan: {str(e)}")
@@ -88,39 +83,31 @@ class WeeklyMealPlansRepository:
         try:
             now = datetime.utcnow()
 
-            # Check if plan exists
-            existing_plan = self.collection.find_one({"week_start_date": update_data.week_start_date})
-
             update_doc = {
                 update_data.day_field.value: update_data.meal_id,
                 "updated_at": now
             }
 
-            if existing_plan:
-                # Update existing plan
-                self.collection.update_one(
-                    {"week_start_date": update_data.week_start_date},
-                    {"$set": update_doc}
-                )
-            else:
-                # Create new plan with only this slot filled
-                new_plan_doc = {
-                    "week_start_date": update_data.week_start_date,
-                    "sunday_lunch": None,
-                    "tuesday_lunch": None,
-                    "monday_dinner": None,
-                    "wednesday_dinner": None,
-                    "created_at": now,
-                    "updated_at": now
-                }
-                new_plan_doc[update_data.day_field.value] = update_data.meal_id
-                self.collection.insert_one(new_plan_doc)
-
-            # Retrieve and return updated/created plan
-            updated_plan = self.collection.find_one({"week_start_date": update_data.week_start_date})
+            # Use find_one_and_update with upsert to handle both update and create in single operation
+            updated_plan = self.collection.find_one_and_update(
+                {"week_start_date": update_data.week_start_date},
+                {
+                    "$set": update_doc,
+                    "$setOnInsert": {
+                        "week_start_date": update_data.week_start_date,
+                        "sunday_lunch": None,
+                        "tuesday_lunch": None,
+                        "monday_dinner": None,
+                        "wednesday_dinner": None,
+                        "created_at": now
+                    }
+                },
+                upsert=True,
+                return_document=ReturnDocument.AFTER
+            )
 
             if not updated_plan:
-                raise RuntimeError("Failed to retrieve updated weekly meal plan")
+                raise RuntimeError("Failed to update meal slot")
 
             return WeeklyMealPlanResponse(**updated_plan)
 

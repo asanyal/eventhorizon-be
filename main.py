@@ -3,6 +3,7 @@
 import os
 import json
 import datetime
+import hashlib
 from dotenv import load_dotenv
 from dateutil import parser
 import pytz
@@ -41,6 +42,34 @@ SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 
 # Global variable to store credentials
 calendar_service = None
+
+# In-memory cache for Google Calendar API responses
+# Format: {cache_key: (response_data, expiry_timestamp)}
+# Using string literal for forward reference since CalendarEvent is defined later
+calendar_cache: Dict[str, tuple[List[Any], float]] = {}
+CACHE_TTL_SECONDS = 60  # Cache for 60 seconds
+
+def get_cache_key(start: str, end: str) -> str:
+    """Generate a cache key from start and end dates"""
+    return hashlib.md5(f"{start}:{end}".encode()).hexdigest()
+
+def get_cached_events(start: str, end: str) -> Optional[List[Any]]:
+    """Get cached events if available and not expired"""
+    cache_key = get_cache_key(start, end)
+    if cache_key in calendar_cache:
+        cached_data, expiry = calendar_cache[cache_key]
+        if datetime.datetime.now().timestamp() < expiry:
+            return cached_data
+        else:
+            # Remove expired entry
+            del calendar_cache[cache_key]
+    return None
+
+def cache_events(start: str, end: str, events: List[Any]):
+    """Cache events with TTL"""
+    cache_key = get_cache_key(start, end)
+    expiry = datetime.datetime.now().timestamp() + CACHE_TTL_SECONDS
+    calendar_cache[cache_key] = (events, expiry)
 
 class CalendarEvent(BaseModel):
     event: str
@@ -367,19 +396,24 @@ async def get_events(
 ) -> List[CalendarEvent]:
     """
     Get Google Calendar events between start and end dates (inclusive)
-    
+
     Args:
         start: Start date in YYYY-MM-DD format
         end: End date in YYYY-MM-DD format
-    
+
     Returns:
         List of calendar events with event details, timing, and duration
     """
     global calendar_service
-    
+
     if not calendar_service:
         raise HTTPException(status_code=500, detail="Google Calendar service not initialized")
-    
+
+    # Check cache first
+    cached_events = get_cached_events(start, end)
+    if cached_events is not None:
+        return cached_events
+
     # Parse and validate dates
     start_datetime = parse_date_string(start)
     end_datetime = parse_date_string(end)
@@ -475,6 +509,9 @@ async def get_events(
             for event in events
             if (processed_event := process_event(event)) is not None
         ]
+
+        # Cache the results before returning
+        cache_events(start, end, formatted_events)
 
         return formatted_events
         

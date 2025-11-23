@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import List, Optional
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
+from pymongo import ReturnDocument
 from bson import ObjectId
 
 from database import db_config
@@ -39,17 +40,13 @@ class TodosRepository:
                 "created_at": now,
                 "updated_at": now
             }
-            
+
             # Insert into MongoDB
             result = self.collection.insert_one(todo_doc)
-            
-            # Retrieve the created document
-            created_todo = self.collection.find_one({"_id": result.inserted_id})
-            
-            if not created_todo:
-                raise RuntimeError("Failed to retrieve created todo")
-            
-            return TodoResponse(**created_todo)
+
+            # Return response directly without additional query
+            todo_doc["_id"] = result.inserted_id
+            return TodoResponse(**todo_doc)
             
         except PyMongoError as e:
             raise RuntimeError(f"Database error while creating todo: {str(e)}")
@@ -102,28 +99,24 @@ class TodosRepository:
         try:
             if not ObjectId.is_valid(todo_id):
                 return None
-            
+
             # Prepare update data
             update_data = {"updated_at": datetime.utcnow()}
-            
+
             if todo_data.title is not None:
                 update_data["title"] = todo_data.title
             if todo_data.urgency is not None:
                 update_data["urgency"] = todo_data.urgency.value
             if todo_data.priority is not None:
                 update_data["priority"] = todo_data.priority.value
-            
-            # Update the document
-            result = self.collection.update_one(
+
+            # Update and return document in single operation
+            updated_todo = self.collection.find_one_and_update(
                 {"_id": ObjectId(todo_id)},
-                {"$set": update_data}
+                {"$set": update_data},
+                return_document=ReturnDocument.AFTER
             )
-            
-            if result.matched_count == 0:
-                return None
-            
-            # Retrieve and return updated document
-            updated_todo = self.collection.find_one({"_id": ObjectId(todo_id)})
+
             return TodoResponse(**updated_todo) if updated_todo else None
             
         except PyMongoError as e:

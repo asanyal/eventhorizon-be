@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import List, Optional
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
+from pymongo import ReturnDocument
 from bson import ObjectId
 
 from database import db_config
@@ -40,17 +41,13 @@ class HorizonRepository:
                 "created_at": now,
                 "updated_at": now
             }
-            
+
             # Insert into MongoDB
             result = self.collection.insert_one(horizon_doc)
-            
-            # Retrieve the created document
-            created_horizon = self.collection.find_one({"_id": result.inserted_id})
-            
-            if not created_horizon:
-                raise RuntimeError("Failed to retrieve created horizon")
-            
-            return HorizonResponse(**created_horizon)
+
+            # Return response directly without additional query
+            horizon_doc["_id"] = result.inserted_id
+            return HorizonResponse(**horizon_doc)
             
         except PyMongoError as e:
             raise RuntimeError(f"Database error while creating horizon: {str(e)}")
@@ -101,10 +98,10 @@ class HorizonRepository:
         try:
             if not ObjectId.is_valid(horizon_id):
                 return None
-            
+
             # Prepare update data
             update_data = {"updated_at": datetime.utcnow()}
-            
+
             if horizon_data.title is not None:
                 update_data["title"] = horizon_data.title
             if horizon_data.details is not None:
@@ -113,18 +110,14 @@ class HorizonRepository:
                 update_data["type"] = horizon_data.type
             if horizon_data.horizon_date is not None:
                 update_data["horizon_date"] = horizon_data.horizon_date
-            
-            # Update the document
-            result = self.collection.update_one(
+
+            # Update and return document in single operation
+            updated_horizon = self.collection.find_one_and_update(
                 {"_id": ObjectId(horizon_id)},
-                {"$set": update_data}
+                {"$set": update_data},
+                return_document=ReturnDocument.AFTER
             )
-            
-            if result.matched_count == 0:
-                return None
-            
-            # Retrieve and return updated document
-            updated_horizon = self.collection.find_one({"_id": ObjectId(horizon_id)})
+
             return HorizonResponse(**updated_horizon) if updated_horizon else None
             
         except PyMongoError as e:

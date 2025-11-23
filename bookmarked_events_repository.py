@@ -41,17 +41,13 @@ class BookmarkedEventsRepository:
                 "created_at": now,
                 "updated_at": now
             }
-            
+
             # Insert into MongoDB
             result = self.collection.insert_one(event_doc)
-            
-            # Retrieve the created document
-            created_event = self.collection.find_one({"_id": result.inserted_id})
-            
-            if not created_event:
-                raise RuntimeError("Failed to retrieve created bookmarked event")
-            
-            return BookmarkEventResponse(**created_event)
+
+            # Return response directly without additional query
+            event_doc["_id"] = result.inserted_id
+            return BookmarkEventResponse(**event_doc)
             
         except PyMongoError as e:
             raise RuntimeError(f"Database error while creating bookmarked event: {str(e)}")
@@ -63,12 +59,7 @@ class BookmarkedEventsRepository:
         try:
             # Retrieve all bookmarked events, sorted by created_at descending (newest first)
             cursor = self.collection.find({}).sort("created_at", -1)
-            events = []
-            
-            for event_doc in cursor:
-                events.append(BookmarkEventResponse(**event_doc))
-            
-            return events
+            return [BookmarkEventResponse(**event_doc) for event_doc in cursor]
             
         except PyMongoError as e:
             raise RuntimeError(f"Database error while retrieving bookmarked events: {str(e)}")
@@ -126,14 +117,9 @@ class BookmarkedEventsRepository:
         try:
             if not date or not date.strip():
                 return []
-            
+
             cursor = self.collection.find({"date": date.strip()}).sort("created_at", -1)
-            events = []
-            
-            for event_doc in cursor:
-                events.append(BookmarkEventResponse(**event_doc))
-            
-            return events
+            return [BookmarkEventResponse(**event_doc) for event_doc in cursor]
             
         except PyMongoError as e:
             raise RuntimeError(f"Database error while retrieving bookmarked events by date: {str(e)}")
