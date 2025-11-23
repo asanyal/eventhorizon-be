@@ -71,6 +71,14 @@ class WeeklyMealPlansRepository:
             if not updated_plan:
                 raise RuntimeError("Failed to upsert weekly meal plan")
 
+            # If created_at is missing (old document from before migration), add it
+            if "created_at" not in updated_plan:
+                self.collection.update_one(
+                    {"_id": updated_plan["_id"]},
+                    {"$set": {"created_at": now}}
+                )
+                updated_plan["created_at"] = now
+
             return WeeklyMealPlanResponse(**updated_plan)
 
         except PyMongoError as e:
@@ -88,19 +96,24 @@ class WeeklyMealPlansRepository:
                 "updated_at": now
             }
 
+            # Build $setOnInsert with all meal fields except the one being updated
+            set_on_insert = {
+                "week_start_date": update_data.week_start_date,
+                "sunday_lunch": None,
+                "tuesday_lunch": None,
+                "monday_dinner": None,
+                "wednesday_dinner": None,
+                "created_at": now
+            }
+            # Remove the field we're updating to avoid MongoDB conflict
+            del set_on_insert[update_data.day_field.value]
+
             # Use find_one_and_update with upsert to handle both update and create in single operation
             updated_plan = self.collection.find_one_and_update(
                 {"week_start_date": update_data.week_start_date},
                 {
                     "$set": update_doc,
-                    "$setOnInsert": {
-                        "week_start_date": update_data.week_start_date,
-                        "sunday_lunch": None,
-                        "tuesday_lunch": None,
-                        "monday_dinner": None,
-                        "wednesday_dinner": None,
-                        "created_at": now
-                    }
+                    "$setOnInsert": set_on_insert
                 },
                 upsert=True,
                 return_document=ReturnDocument.AFTER
@@ -108,6 +121,14 @@ class WeeklyMealPlansRepository:
 
             if not updated_plan:
                 raise RuntimeError("Failed to update meal slot")
+
+            # If created_at is missing (old document from before migration), add it
+            if "created_at" not in updated_plan:
+                self.collection.update_one(
+                    {"_id": updated_plan["_id"]},
+                    {"$set": {"created_at": now}}
+                )
+                updated_plan["created_at"] = now
 
             return WeeklyMealPlanResponse(**updated_plan)
 

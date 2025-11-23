@@ -1109,12 +1109,23 @@ async def get_weekly_meal_plan(week_start_date: str = Query(..., description="Mo
         week_start_date: Monday of the week in YYYY-MM-DD format
 
     Returns:
-        The weekly meal plan if found
+        The weekly meal plan (creates empty plan if none exists)
     """
     try:
         plan = await weekly_meal_plans_repo.get_weekly_meal_plan(week_start_date)
         if not plan:
-            raise HTTPException(status_code=404, detail="Weekly meal plan not found")
+            # Return empty meal plan structure instead of 404
+            from datetime import datetime
+            now = datetime.utcnow()
+            return WeeklyMealPlanResponse(
+                week_start_date=week_start_date,
+                sunday_lunch=None,
+                tuesday_lunch=None,
+                monday_dinner=None,
+                wednesday_dinner=None,
+                created_at=now,
+                updated_at=now
+            )
         return plan
     except HTTPException:
         raise
