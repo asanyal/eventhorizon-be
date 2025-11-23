@@ -108,6 +108,12 @@ async def lifespan(app: FastAPI):
         else:
             calendar_service = authenticate_google_calendar()
             print("✅ Google Calendar API: Successful Authentication (JSON File)")
+
+        # Warm up Google Calendar API connection by making a test call
+        # This ensures the service is ready and catches any token refresh issues early
+        print("🔥 Warming up Google Calendar API connection...")
+        calendar_service.calendarList().list(maxResults=1).execute()
+        print("✅ Google Calendar API connection warmed up successfully")
     except Exception as e:
         print(f"❌ Failed to authenticate Google Calendar API: {e}")
         raise e
@@ -117,6 +123,8 @@ async def lifespan(app: FastAPI):
         print("✅ MongoDB connected successfully")
         # Ensure indexes are created for optimal query performance
         db_config.ensure_indexes()
+        # Warm up connection pool to avoid cold start delays
+        db_config.warmup_connection_pool()
     except Exception as e:
         print(f"❌ Failed to connect to MongoDB: {e}")
         raise e

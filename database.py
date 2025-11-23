@@ -146,5 +146,47 @@ class DatabaseConfig:
             print(f"⚠️  Warning: Could not ensure indexes: {e}")
             # Don't fail the application if indexes can't be created
 
+    def warmup_connection_pool(self):
+        """
+        Warm up the MongoDB connection pool by opening connections proactively.
+        This ensures connections are ready when the first user request arrives,
+        avoiding cold start delays.
+        """
+        if self.database is None:
+            raise RuntimeError("Database not connected. Call connect() first.")
+
+        try:
+            print("🔥 Warming up MongoDB connection pool...")
+
+            # Perform lightweight operations on all main collections to establish connections
+            # This will open connections in the pool and make them ready for use
+            collections_to_warmup = [
+                "todos",
+                "horizon",
+                "bookmarked_events",
+                "ingredients",
+                "meals",
+                "weekly_meal_plans"
+            ]
+
+            for collection_name in collections_to_warmup:
+                try:
+                    collection = self.get_collection(collection_name)
+                    # Perform a fast query with limit 1 to warm up the connection
+                    # Using find_one is faster than find().limit(1)
+                    collection.find_one({})
+                except Exception as e:
+                    # Don't fail startup if a collection doesn't exist yet
+                    pass
+
+            # Verify connection pool is active by checking server status
+            self.client.admin.command('ping')
+
+            print("✅ MongoDB connection pool warmed up successfully")
+
+        except Exception as e:
+            print(f"⚠️  Warning: Could not warm up connection pool: {e}")
+            # Don't fail the application if warmup fails
+
 # Global database instance
 db_config = DatabaseConfig()
