@@ -125,9 +125,38 @@ async def lifespan(app: FastAPI):
         db_config.ensure_indexes()
         # Warm up connection pool to avoid cold start delays
         db_config.warmup_connection_pool()
+
+        # Warm up repository collection references to avoid lazy initialization delay
+        print("🔥 Warming up repository collections...")
+        _ = todos_repo.collection
+        _ = horizon_repo.collection
+        _ = bookmarked_events_repo.collection
+        _ = ingredients_repo.collection
+        _ = meals_repo.collection
+        _ = weekly_meal_plans_repo.collection
+        print("✅ Repository collections warmed up successfully")
     except Exception as e:
         print(f"❌ Failed to connect to MongoDB: {e}")
         raise e
+
+    # Warm up Google Calendar events fetch with a real query
+    # This ensures the full events pipeline is ready for the first user request
+    try:
+        print("🔥 Warming up Google Calendar events fetch...")
+        today = datetime.datetime.now()
+        warmup_start = today.replace(hour=0, minute=0, second=0, microsecond=0)
+        warmup_end = today.replace(hour=23, minute=59, second=59, microsecond=999999)
+        calendar_service.events().list(
+            calendarId='primary',
+            timeMin=warmup_start.isoformat() + 'Z',
+            timeMax=warmup_end.isoformat() + 'Z',
+            maxResults=1,
+            singleEvents=True
+        ).execute()
+        print("✅ Google Calendar events fetch warmed up successfully")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not warm up events fetch: {e}")
+        # Don't fail startup if warmup fails
 
     yield
     
